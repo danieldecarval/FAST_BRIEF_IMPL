@@ -113,8 +113,6 @@ CvPoint CV_POINT_PLUS(const CvPoint p, const CvPoint delta) {
 // Construct the integral image at first call
 void briefInit() {
 	integralImage = cvCreateMat(1, 1, CV_32SC1);
-	printf("Before pickTestLocations !\n");
-
 	pickTestLocations();
 }
 

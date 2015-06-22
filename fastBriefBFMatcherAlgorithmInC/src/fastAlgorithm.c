@@ -34,6 +34,11 @@ IplImage* applyTransformationsOnImage(IplImage* img);
 void drawKeypoints(IplImage* img, xy* corners, int numOfKeypoints);
 void convertXYToCvPoint(xy* corners, CvPoint tabKeypoints1[],
 		int numKeypointsImg1);
+int fastAlgorithm(int choice, int b, const char* dataImg, IplImage* img,
+		xy** corners);
+void briefAlgorithm(xy* corners, CvPoint tabKeypoints[getNumberOfKeypoints()],
+		int numKeypointsImg, IplImage* imgresized,
+		int desc[getNumberOfKeypoints()][DESC_LEN]);
 
 /*
  * Get the different matches
@@ -125,9 +130,12 @@ int matchDescriptors(CvMat match1, CvMat match2,
 	int numberOfMatches = 0;
 	int bestMatchInd2 = 0;
 
+	int compteur1 = 0;
+	int compteur2 = 0;
 	unsigned int i, j;
 	for (i = 0; i < nKpts1 && numberOfMatches < MAXIMUM_NUMBER_OF_MATCHES;
 			i++) {
+		compteur1++;
 		int minDist = DESC_LEN;
 		for (j = 0; j < nKpts2; j++) {
 			const int dist = HAMMING_DISTANCE(descs1[i], descs2[j]);
@@ -136,6 +144,7 @@ int matchDescriptors(CvMat match1, CvMat match2,
 				minDist = dist;
 				bestMatchInd2 = j;
 			}
+			compteur2++;
 		}
 		if (minDist > MAX_MATCH_DISTANCE) {
 			//continue;
@@ -158,6 +167,9 @@ int matchDescriptors(CvMat match1, CvMat match2,
 		cvInitMatHeader(&match2, numberOfMatches, 2, CV_64FC1, match2Data,
 		CV_AUTOSTEP);
 	}
+
+	printf("Desc1.size : %d\n", nKpts1);
+	printf("Desc2.size : %d\n", nKpts2);
 	return numberOfMatches;
 }
 
@@ -209,30 +221,92 @@ void putImagesSideBySide(IplImage* result, const IplImage* img1,
 }
 
 /*
+ * FAST algorithm for features detection
+ */
+int fastAlgorithm(int choice, int b, const char *dataImg, IplImage* img,
+		xy** corners) {
+	// Variables for timer
+	double tStart, tResSom;
+	// Return the number of keypoints
+	int numKeypointsImg;
+	// Return the number of corners
+	xy *return_corners;
+
+	// Choose the version of FAST algorithm
+	switch (choice) {
+	// FAST 9
+	case 9:
+		tStart = startTimer();
+		return_corners = fast9_detect_nonmax(dataImg, img->width, img->height,
+				img->widthStep, b, &numKeypointsImg);
+		tResSom = endTimer(tStart);
+		break;
+	case 10:
+		tStart = startTimer();
+		return_corners = fast10_detect_nonmax(dataImg, img->width, img->height,
+				img->widthStep, b, &numKeypointsImg);
+		tResSom = endTimer(tStart);
+		break;
+	case 11:
+		tStart = startTimer();
+		return_corners = fast11_detect_nonmax(dataImg, img->width, img->height,
+				img->widthStep, b, &numKeypointsImg);
+		tResSom = endTimer(tStart);
+		break;
+	case 12:
+		tStart = startTimer();
+		return_corners = fast12_detect_nonmax(dataImg, img->width, img->height,
+				img->widthStep, b, &numKeypointsImg);
+		tResSom = endTimer(tStart);
+		break;
+	default:
+		printf("Error you choose a wrong number !");
+		break;
+	}
+	printf("Timef is %lf ms for %d corners for the first image\n", tResSom,
+			numKeypointsImg);
+
+	// Draw the different keypoints (two lines to give an arrow)
+	drawKeypoints(img, return_corners, numKeypointsImg);
+
+	// Show the image with the keypoints
+	cvShowImage("FAST_detection", img);
+	// Wait the user to press a key to continue the program
+	cvWaitKey(0);
+
+	*corners = return_corners;
+
+	return numKeypointsImg;
+}
+
+/*
+ * BRIEF algorithm for features description
+ */
+void briefAlgorithm(xy* corners, CvPoint tabKeypoints[getNumberOfKeypoints()],
+		int numKeypointsImg, IplImage* imgresized,
+		int desc[getNumberOfKeypoints()][DESC_LEN]) {
+	// Convert xy structure to a CvPoint
+	convertXYToCvPoint(corners, tabKeypoints, numKeypointsImg);
+
+	// Set the number of Keypoints for the first image
+	setNumberOfKeypoints(numKeypointsImg);
+	// Get the descriptors for the keypoints of the first image
+	getBriefDescriptors(desc, tabKeypoints, imgresized);
+
+}
+
+/*
  * Main function of the application
  */
 int main(int argc, char* argv[]) {
-	// Variables for timer
-	double tStart1, tResult1, tResSom1, tStart2, tResult2, tResSom2;
 
-	// Variables for the loop
-	int i;
-
-	// For the entry of the function from FAST, it needs an array of byte
+	// In the entry of the function for FAST algorithm, it needs an array of byte
 	const char *dataImg1;
 	const char *dataImg2;
 
-	// Get the corners with the coordinates x and y --> the code from FAST provides this structure
-	xy* corners1;
-	xy* corners2;
-
-	// Number of keypoints
-	int numKeypointsImg1;
-	int numKeypointsImg2;
-
 	// Load the image to process
-	IplImage* img1 = cvLoadImage("satellite.PNG", 1);
-	IplImage* img2 = cvLoadImage("satellite.PNG", 1);
+	IplImage* img1 = cvLoadImage("LenaX.jpg", 1);
+	IplImage* img2 = cvLoadImage("LENNA.jpg", 1);
 
 	if (img1 == NULL || img2 == NULL) {
 		puts("ERROR, ONE OF YOUR IMAGE IS EMPTY ! ");
@@ -245,7 +319,7 @@ int main(int argc, char* argv[]) {
 
 	// Release the first and second initial image
 	cvReleaseImage(&img1);
-	cvRelease(&img2);
+	cvReleaseImage(&img2);
 
 	// Copy the datas from the image to the byte array
 	dataImg1 = (char *) img1resized->imageData;
@@ -258,63 +332,23 @@ int main(int argc, char* argv[]) {
 	// Choose between fast_9, fast_10, fast_11 or fast_12
 	int choice = 9;
 
-	// Choose the version of FAST algorithm
-	switch (choice) {
-	// FAST 9
-	case 9:
-		tStart1 = startTimer();
-		corners1 = fast9_detect_nonmax(dataImg1, img1resized->width,
-				img1resized->height, img1resized->widthStep, b,
-				&numKeypointsImg1);
-		tResSom1 = endTimer(tStart1);
-		tStart2 = startTimer();
-		corners2 = fast9_detect_nonmax(dataImg2, img2resized->width,
-				img2resized->height, img2resized->widthStep, b,
-				&numKeypointsImg2);
-		tResSom2 = endTimer(tStart2);
-		break;
-	case 10:
-		tStart1 = startTimer();
-		corners1 = fast10_detect_nonmax(dataImg1, img1resized->width,
-				img1resized->height, img1resized->widthStep, b,
-				&numKeypointsImg1);
-		tResSom1 = endTimer(tStart1);
-		break;
-	case 11:
-		tStart1 = startTimer();
-		corners1 = fast11_detect_nonmax(dataImg1, img1resized->width,
-				img1resized->height, img1resized->widthStep, b,
-				&numKeypointsImg1);
-		tResSom1 = endTimer(tStart1);
-		break;
-	case 12:
-		tStart1 = startTimer();
-		corners1 = fast12_detect_nonmax(dataImg1, img1resized->width,
-				img1resized->height, img1resized->widthStep, b,
-				&numKeypointsImg1);
-		tResSom1 = endTimer(tStart1);
-		break;
-	default:
-		printf("Error you choose a wrong number !");
-		break;
-	}
-	printf("Timef is %lf ms for %d corners for the first image\n", tResSom1,
-			numKeypointsImg1);
-	printf("Timef is %lf ms for %d corners for the second image\n", tResSom2,
-			numKeypointsImg2);
+	// Get the corners with the coordinates x and y --> the code from FAST provides this structure
+	xy* corners1;
+	xy* corners2;
 
-	// Draw the different keypoints (two lines to give an arrow)
-	drawKeypoints(img1resized, corners1, numKeypointsImg1);
-	drawKeypoints(img2resized, corners2, numKeypointsImg2);
+	// Number of keypoints
+	int numKeypointsImg1;
+	int numKeypointsImg2;
 
-	// Show the image with the keypoints
-	cvShowImage("FAST_detection Image1", img1resized);
-	cvShowImage("FAST_detection Image2", img2resized);
-	// Wait the user to press a key to continue the program
-	cvWaitKey(0);
+	// Call the function of FAST algorithm for the first image
+	numKeypointsImg1 = fastAlgorithm(choice, b, dataImg1, img1resized,
+			&corners1);
+
+	// Call the function of FAST algorithm for the second image
+	numKeypointsImg2 = fastAlgorithm(choice, b, dataImg2, img2resized,
+			&corners2);
 
 //********************************* BRIEF ALGORITHM *********************************//
-
 // The two descriptors arrays
 	int desc1[numKeypointsImg1][DESC_LEN];
 	int desc2[numKeypointsImg2][DESC_LEN];
@@ -322,29 +356,20 @@ int main(int argc, char* argv[]) {
 	CvPoint tabKeypoints1[numKeypointsImg1];
 	CvPoint tabKeypoints2[numKeypointsImg2];
 
-	// Convert xy structure to a CvPoint
-	convertXYToCvPoint(corners1, tabKeypoints1, numKeypointsImg1);
-	convertXYToCvPoint(corners2, tabKeypoints2, numKeypointsImg2);
-
-//################ IMAGE 1 ################//
 	// Initialize BRIEF algorithm constructor
 	briefInit();
-	// Set the number of Keypoints for the first image
-	setNumberOfKeypoints(numKeypointsImg1);
-	// Get the descriptors for the keypoints of the first image
-	getBriefDescriptors(desc1, tabKeypoints1, img1resized);
 
-//################ IMAGE 2 ################//
-	// Set the number of Keypoints for the second image
-	setNumberOfKeypoints(numKeypointsImg2);
-	// Get the descriptors for the keypoints of the first image
-	getBriefDescriptors2(desc2, tabKeypoints2, img2resized);
+	briefAlgorithm(corners1, tabKeypoints1, numKeypointsImg1, img1resized,
+			desc1);
+	briefAlgorithm(corners2, tabKeypoints2, numKeypointsImg2, img2resized,
+			desc2);
+
 	// Call the BRIEF algorithm destructor
 	briefDestroy();
 
 //********************************* Brute Force Matcher ALGORITHM *********************************//
 
-	// The two matrix for the matching
+// The two matrix for the matching
 	CvMat match1;
 	CvMat match2;
 
